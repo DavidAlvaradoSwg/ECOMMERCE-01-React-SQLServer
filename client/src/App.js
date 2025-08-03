@@ -8,7 +8,9 @@ function App() {
   const[pais, setPais] = useState("");
   const[cargo, setCargo] = useState("");
   const[años, setAños] = useState(0);
-
+  const mostrarDatos = ()=>{  
+alert(nombre);
+  }
   return (
     <div className="App">
      <div className="datos"> 
@@ -18,22 +20,17 @@ function App() {
         setNombre(event.target.value);
       }}
       type="text"/></label><br/>
-
-
       <label>Edad:<input
        onChange={(event)=>{
         setEdad(event.target.value);
-      }}
-      
-      type="text"/></label><br/> 
-      
+      }}     
+      type="text"/></label><br/>    
       <label>Pais:<input
        onChange={(event)=>{
         setPais(event.target.value);
        }}
        type="text"/></label><br/>
     
-
       <label>Cargo:<input
        onChange={(event)=>{
         setNombre(event.target.value);
@@ -44,7 +41,7 @@ function App() {
         setAños(event.target.value);
       }}
       type="number"/></label><br/> {/* alt+0241 */}
-      <button>Registrar</button>
+      <button onClick={mostrarDatos}>Registrar</button>
       </div>
     </div>
   );
