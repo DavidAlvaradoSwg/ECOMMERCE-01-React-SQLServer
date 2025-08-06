@@ -1,0 +1,5 @@
+# Ignorar la carpeta de dependencias de Node
+node_modules
+
+# ¡MUY IMPORTANTE! Ignorar el archivo que contiene las credenciales
+.env

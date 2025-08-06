@@ -1,19 +1,31 @@
 import express from 'express';
 import sql from 'mssql';
 import cors from 'cors';
+import dotenv from 'dotenv';
+
+// Cargar variables de entorno desde el archivo .env
+dotenv.config({ debug: process.env.NODE_ENV !== 'production' });
+
+// Verificación de variables de entorno
+if (!process.env.DB_SERVER || !process.env.DB_DATABASE || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+  console.error("ERROR FATAL: Las variables de entorno de la base de datos no están configuradas. Por favor, revisa tu archivo .env.");
+  process.exit(1);
+}
+
 const app = express();
 
-
 const config = {
-    // No se necesitan 'user' ni 'password' para la autenticación de Windows
-    server: 'DAVIDPC\\SQLSERVER', // El nombre de tu servidor y la instancia
-    database: 'ReactApp1.3', // El nombre de la base de datos a la que quieres conectarte
-    user: "sa",
-    password:"Manzana16.",
+    user: process.env.DB_USER, // Usuario de la base de datos desde .env
+    password: process.env.DB_PASSWORD, // Contraseña desde .env
+    server: process.env.DB_SERVER, // Servidor desde .env
+    port: parseInt(process.env.DB_PORT, 10), // Puerto desde .env
+    database: process.env.DB_DATABASE, // Base de datos desde .env
     options: {
-        trustedConnection: true, // Esto indica que uses la autenticación de Windows
-        encrypt: false, // O true si usas Azure
-        trustServerCertificate: true // Necesario para entornos de desarrollo local
+        // Para desarrollo local, puedes seguir usando la autenticación de Windows si lo prefieres,
+        // pero la autenticación con usuario/contraseña es el estándar para producción.
+        // trustedConnection: true,
+        encrypt: process.env.NODE_ENV === 'production', // Usar 'true' para Azure o producción
+        trustServerCertificate: true // Necesario para desarrollo local con certificados autofirmados
     },
     pool: {
         max: 10,
@@ -21,25 +33,16 @@ const config = {
         idleTimeoutMillis: 30000
     }
 };
+
 app.use(cors()); 
 app.use(express.json());
 
-let pool;
-async function startDbPool() {
-    try {
-        pool = await sql.connect(config);
-        console.log('Pool de conexión a SQL Server establecido.');
-    } catch (err) {
-        console.error('Error al conectar a la base de datos:', err);
-    }
-}
-startDbPool();
 
-app.post('/agregar-usuario', async (req, res) => {
+app.post('/agregar-empleado', async (req, res) => {
     const { nombre, edad, pais, cargo, años } = req.body;
     
     if (!nombre || !edad || !pais || !cargo || !años) {
-        return res.status(500).send('Faltan datos de usuario (nombre, edad, pais, cargo, años).');
+        return res.status(400).json({ mensaje: 'Faltan datos: nombre, edad, pais, cargo, años son requeridos.' });
     }
 
     try {
@@ -52,14 +55,15 @@ app.post('/agregar-usuario', async (req, res) => {
         request.input('años', sql.Int, parseInt(años)); // Se convierte a entero
         
         await request.query(`
-            INSERT INTO dbo.Table_2 (nombreEmpleado, edadEmpleado, paisEmpleado, cargoEmpleado, TiempoLaborando)
+            -- Corregido: Asegúrate de que los nombres de columna aquí coincidan con tu tabla.
+            INSERT INTO dbo.Empleados (nombreEmpleado, edadEmpleado, paisEmpleado, cargoEmpleado, TiempoLaborando)
             VALUES (@nombre, @edad, @pais, @cargo, @años)
         `);
         
         res.json({ mensaje: 'Usuario agregado correctamente' });
     } catch (err) {
         console.error('Error al agregar usuario:', err);
-        res.status(500).send(err.message);
+        res.status(500).json({ mensaje: `Error al agregar el empleado: ${err.message}` });
     }
 });
 
@@ -77,10 +81,103 @@ app.get('/test-db', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-    console.log(`Servidor escuchando en el puerto ${PORT}`);
+
+app.get('/consultar-empleado', async (req, res) => {
+    try {
+        if (!pool) {
+            return res.status(503).json({ mensaje: 'El pool de conexiones no está disponible.' });
+        }
+        const request = pool.request();
+        
+        const result = await request.query(`
+            -- Corregido: Se usan alias para que el frontend reciba los nombres que espera (ej. 'edadEmpleado')
+            SELECT idEmpleado,
+                   nombreEmpleado,
+                   edadEmpleado,
+                   paisEmpleado,
+                   cargoEmpleado,
+                   TiempoLaborando
+            FROM dbo.Empleados
+        `);
+        
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('Error al consultar usuarios:', err);
+        res.status(500).json({ mensaje: `Error al consultar los empleados: ${err.message}` });
+    }
 });
+
+app.put('/actualizar-empleado/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nombre, edad, pais, cargo, años } = req.body;
+
+    if (!nombre || !edad || !pais || !cargo || !años) {
+        return res.status(400).json({ mensaje: 'Faltan datos para actualizar.' });
+    }
+
+    try {
+        const request = pool.request();
+        request.input('id', sql.Int, id);
+        request.input('nombre', sql.VarChar(50), nombre);
+        request.input('edad', sql.Int, parseInt(edad));
+        request.input('pais', sql.VarChar(50), pais);
+        request.input('cargo', sql.VarChar(50), cargo);
+        request.input('años', sql.Int, parseInt(años));
+
+        await request.query(`
+            UPDATE dbo.Empleados
+            SET nombreEmpleado = @nombre,
+                edadEmpleado = @edad,
+                paisEmpleado = @pais,
+                cargoEmpleado = @cargo,
+                TiempoLaborando = @años
+            WHERE idEmpleado = @id
+        `);
+
+        res.json({ mensaje: 'Empleado actualizado correctamente' });
+    } catch (err) {
+        console.error('Error al actualizar empleado:', err);
+        res.status(500).json({ mensaje: `Error al actualizar empleado: ${err.message}` });
+    }
+});
+
+app.delete('/eliminar-empleado/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const request = pool.request();
+        request.input('id', sql.Int, id);
+        
+        const result = await request.query('DELETE FROM dbo.Empleados WHERE idEmpleado = @id');
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ mensaje: 'Empleado no encontrado.' });
+        }
+
+        res.json({ mensaje: 'Empleado eliminado correctamente' });
+    } catch (err) {
+        console.error('Error al eliminar empleado:', err);
+        res.status(500).json({ mensaje: `Error al eliminar empleado: ${err.message}` });
+    }
+});
+
+let pool;
+async function startServer() {
+    try {
+        pool = await sql.connect(config);
+        console.log('Pool de conexión a SQL Server establecido.');
+
+        const PORT = process.env.PORT || 3001;
+        app.listen(PORT, () => {
+            console.log(`Servidor escuchando en el puerto ${PORT}`);
+        });
+    } catch (err) {
+        console.error('Error al conectar a la base de datos. El servidor no se iniciará.', err);
+        process.exit(1); // Detiene la aplicación si no se puede conectar a la BD
+    }
+}
+
+startServer();
 
 process.on('SIGINT', async () => {
     if (pool) {
